@@ -253,20 +253,24 @@ class ResultProxy(object):
 
     @property
     def status(self):
-        if not self.job.success():
-            raise RuntimeError("job {0} {1}".format(self.job.job_id, self.job.status()))
         return self.job.status()
 
     @property
     def size(self):
         if not self.job.success():
             raise RuntimeError("job {0} {1}".format(self.job.job_id, self.job.status()))
+        else:
+            if self.job.result_size is None:
+                self.job.update()
         return self.job.result_size
 
     @property
     def description(self):
         if not self.job.success():
             raise RuntimeError("job {0} {1}".format(self.job.job_id, self.job.status()))
+        else:
+            if self.job.result_schema is None:
+                self.job.update()
         return self.job.result_schema
 
     def read(self, size=16384):
@@ -278,8 +282,6 @@ class ResultProxy(object):
             return ''
 
     def __iter__(self):
-        if not self.job.success():
-            raise RuntimeError("job {0} {1}".format(self.job.job_id, self.job.status()))
         for record in msgpack.Unpacker(self, encoding='utf-8'):
             yield record
 
@@ -450,8 +452,8 @@ def read_td_result(r, engine, index_col=None, parse_dates=None):
 
     Parameters
     ----------
-    r : ResultProxy or string
-        A ResultProxy returned by td_query, or a string of job id
+    r : string or ResultProxy
+        A string of job id, or a ResultProxy returned by td_query
     engine : QueryEngine
         Handler returned by create_engine.
     index_col : string, optional
@@ -469,8 +471,8 @@ def read_td_result(r, engine, index_col=None, parse_dates=None):
     DataFrame
     '''
     header = engine.create_header("read_td_result")
-    if not isinstance(r, ResultProxy):
-        r = engine.result_async(r)
+    job_id = r.job.job_id if isinstance(r, ResultProxy) else str(r)
+    r = engine.result_async(job_id)
     return r.to_dataframe(index_col=index_col, parse_dates=parse_dates)
 
 def read_td_table(table_name, engine, index_col=None, parse_dates=None, columns=None, time_range=None, sample=None, limit=10000):
