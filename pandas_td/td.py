@@ -195,6 +195,30 @@ class QueryEngine(object):
         # result
         return ResultProxy(self, job)
 
+    def execute_async(self, query, **kwargs):
+        # parameters
+        params = self._params.copy()
+        params.update(kwargs)
+
+        # issue query
+        issued_at = datetime.datetime.utcnow().replace(microsecond=0)
+        job = self.connection.client.query(self.database, query, **params)
+        job.issued_at = issued_at
+
+        # result
+        return ResultProxy(self, job)
+
+    def result_async(self, job_id, **kwargs):
+        job = tdclient.models.Job(self.connection.client, job_id, None, None)
+        job.update()
+
+        # issue query
+        issued_at = datetime.datetime.utcnow().replace(microsecond=0)
+        job.issued_at = issued_at
+
+        # result
+        return ResultProxy(self, job)
+
     def _http_get(self, uri, **kwargs):
         return requests.get(uri, **kwargs)
 
@@ -229,14 +253,20 @@ class ResultProxy(object):
 
     @property
     def status(self):
+        if not self.job.success():
+            raise RuntimeError("job {0} {1}".format(self.job.job_id, self.job.status()))
         return self.job.status()
 
     @property
     def size(self):
+        if not self.job.success():
+            raise RuntimeError("job {0} {1}".format(self.job.job_id, self.job.status()))
         return self.job.result_size
 
     @property
     def description(self):
+        if not self.job.success():
+            raise RuntimeError("job {0} {1}".format(self.job.job_id, self.job.status()))
         return self.job.result_schema
 
     def read(self, size=16384):
@@ -248,6 +278,8 @@ class ResultProxy(object):
             return ''
 
     def __iter__(self):
+        if not self.job.success():
+            raise RuntimeError("job {0} {1}".format(self.job.job_id, self.job.status()))
         for record in msgpack.Unpacker(self, encoding='utf-8'):
             yield record
 
@@ -399,6 +431,46 @@ def read_td_query(query, engine, index_col=None, params=None, parse_dates=None):
     header = engine.create_header("read_td_query")
     # execute
     r = engine.execute(header + query, **params)
+    return r.to_dataframe(index_col=index_col, parse_dates=parse_dates)
+
+def td_query(query, engine, params=None):
+    if params is None:
+        params = {}
+    # query
+    header = engine.create_header("td_query")
+    r = engine.execute_async(header + query, **params)
+    return r
+
+def read_td_result(r, engine, index_col=None, parse_dates=None):
+    '''Read Treasure Data result into a DataFrame.
+
+    Returns a DataFrame corresponding to the result set of an existing job.
+    Optionally provide an index_col parameter to use one of the columns as
+    the index, otherwise default integer index will be used.
+
+    Parameters
+    ----------
+    r : ResultProxy or string
+        A ResultProxy returned by td_query, or a string of job id
+    engine : QueryEngine
+        Handler returned by create_engine.
+    index_col : string, optional
+        Column name to use as index for the returned DataFrame object.
+    params : dict, optional
+        Parameters to pass to execute method.
+    parse_dates : list or dict, optional
+        - List of column names to parse as dates
+        - Dict of {column_name: format string} where format string is strftime
+          compatible in case of parsing string times or is one of (D, s, ns, ms, us)
+          in case of parsing integer timestamps
+
+    Returns
+    -------
+    DataFrame
+    '''
+    header = engine.create_header("read_td_result")
+    if not isinstance(r, ResultProxy):
+        r = engine.result_async(r)
     return r.to_dataframe(index_col=index_col, parse_dates=parse_dates)
 
 def read_td_table(table_name, engine, index_col=None, parse_dates=None, columns=None, time_range=None, sample=None, limit=10000):
