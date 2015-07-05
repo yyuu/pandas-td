@@ -49,6 +49,22 @@ df = td.read_td_table('nasdaq', engine, sample=0.05, limit=10000)
 td.to_td(df, 'my_db.test_table', con, if_exists='replace', index=False)
 ```
 
+If you are using IPython or Jupyter, you can enable magic functions:
+
+```python
+%load_ext td.ipython
+
+%use sample_datasets
+import www_access
+import nasdaq
+
+%dt
+...
+
+%%presto
+select * from www_access limit 3
+```
+
 ## Documentation
 
 - Tutorial (https://github.com/treasure-data/pandas-td/blob/master/doc/tutorial.ipynb)
